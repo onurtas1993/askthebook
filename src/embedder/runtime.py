@@ -7,6 +7,7 @@ from pathlib import Path
 import secrets
 import socket
 import subprocess
+import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.request import ProxyHandler, Request, build_opener
@@ -34,6 +35,10 @@ class Client:
         })["tokens"]
 
 
+def server_executable(config: dict) -> Path:
+    return Path(config["llama_cpp_bin_dir"]) / ("llama-server.exe" if os.name == "nt" else "llama-server")
+
+
 def load_config(path: Path) -> dict:
     config = json.loads(path.read_text(encoding="utf-8"))
     for key in ("llama_cpp_bin_dir", "embedding_model_path"):
@@ -43,7 +48,7 @@ def load_config(path: Path) -> dict:
         if not resolved.is_absolute():
             resolved = path.resolve().parent / resolved
         config[key] = str(resolved)
-    executable = Path(config["llama_cpp_bin_dir"]) / "llama-server.exe"
+    executable = server_executable(config)
     if not executable.is_file():
         raise ValueError(f"Missing executable: {executable}")
     if not Path(config["embedding_model_path"]).is_file():
@@ -53,14 +58,14 @@ def load_config(path: Path) -> dict:
 
 @contextmanager
 def local_server(config: dict, context_size: int, log_path: Path):
-    # Ask Windows for an available loopback port, then pass it to our subprocess.
+    # Ask the OS for an available loopback port, then pass it to our subprocess.
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = reservation.getsockname()[1]
     key = secrets.token_hex(24)
     client = Client(port, key)
     args = [
-        str(Path(config["llama_cpp_bin_dir"]) / "llama-server.exe"),
+        str(server_executable(config)),
         "--model", config["embedding_model_path"], "--offline",
         "--embedding", "--pooling", "last", "--alias", "book-embeddings",
         "--host", "127.0.0.1", "--port", str(port), "--api-key", key,
@@ -68,9 +73,16 @@ def local_server(config: dict, context_size: int, log_path: Path):
         "--ubatch-size", str(context_size), "--parallel", "1",
         "--gpu-layers", "all", "--no-webui",
     ]
+    environment = os.environ.copy()
+    if sys.platform.startswith("linux") and getattr(sys, "frozen", False):
+        # External llama.cpp must not inherit PyInstaller's bundled library path.
+        if "LD_LIBRARY_PATH_ORIG" in environment:
+            environment["LD_LIBRARY_PATH"] = environment["LD_LIBRARY_PATH_ORIG"]
+        else:
+            environment.pop("LD_LIBRARY_PATH", None)
     with log_path.open("w", encoding="utf-8") as log:
         process = subprocess.Popen(
-            args, stdout=log, stderr=subprocess.STDOUT,
+            args, stdout=log, stderr=subprocess.STDOUT, env=environment,
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         try:

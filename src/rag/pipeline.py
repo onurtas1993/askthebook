@@ -11,7 +11,7 @@ from src.embedder.runtime import load_config
 from src.retriever.search import retrieve
 
 
-DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config.local.json"
+DEFAULT_CONFIG = Path(__file__).resolve().parents[2] / "config.json"
 
 
 def configured_path(settings: dict, key: str, config_path: Path) -> Path:
