@@ -1,0 +1,6 @@
+PyMuPDF==1.28.2
+numpy==2.5.3
+faiss-cpu==1.15.1
+fastapi==0.141.1
+uvicorn==0.53.0
+python-multipart==0.0.32
