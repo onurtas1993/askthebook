@@ -12,6 +12,7 @@ on:
       - "src/**"
       - "requirements*.txt"
       - "config.json"
+      - "icon.ico"
 
 permissions:
   contents: read
@@ -25,9 +26,11 @@ jobs:
           - os: windows-latest
             artifact: AskTheBook-windows-x64
             output: dist/
+            icon: --icon icon.ico
           - os: ubuntu-22.04
             artifact: AskTheBook-ubuntu-22.04-x64
             output: AskTheBook-ubuntu-22.04-x64.tar.gz
+            icon: ""
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     steps:
@@ -45,7 +48,7 @@ jobs:
       - name: Build executable
         run: >-
           python -m PyInstaller --noconfirm --clean --onefile --console
-          --name AskTheBook --paths .
+          --name AskTheBook --paths . ${{ matrix.icon }}
           --collect-all faiss --collect-all pymupdf
           --collect-submodules uvicorn --collect-submodules python_multipart
           packaging/entry.py
