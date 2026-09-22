@@ -1,21 +1,27 @@
-# AskTheBook
+<table>
+  <tr>
+    <td>
 
+<img src="./icon.ico" width="128"/>
+    </td>
+    <td>
+
+# Ask The Book
 A local, API-only RAG backend. Promptlet or another GUI consumes HTTP endpoints;
-processing code stays here. The separate `tester` module is a small HTTP client.
-Upload a text-based PDF, then ask questions about it and receive answers with
-retrieved page text and citations. No GUI is included in this repository yet.
+processing code stays here. Upload a text-based PDF, then ask questions about it and receive answers with retrieved page text and citations. 
+    </td>
+  </tr>
+</table>
 
 The pipeline is implemented directly in Python: PyMuPDF extracts text, external
 llama.cpp runs Qwen3-Embedding-0.6B, CPU FAISS retrieves pages, and LM Studio runs
-the answer model. FastAPI exposes the backend through Uvicorn. There is no
-LangChain, LlamaIndex, MCP, or agent framework. Sentence-transformers is not used;
-the embedding implementation uses a local GGUF instead.
+the answer model. FastAPI exposes the backend through Uvicorn. Embeddings use a local GGUF model.
 
 ## Server workflow
 
 ```mermaid
 flowchart TD
-    Client[Tester or external GUI] -->|POST /documents: PDF file| Upload[Save PDF and extract page text]
+    Client[external GUI application] -->|POST /documents: PDF file| Upload[Save PDF and extract page text]
     Upload --> Chunk[One chunk per nonempty page]
     Chunk --> Embed[Temporary llama.cpp process: Qwen embeddings]
     Embed --> Index[Persist FAISS index and page metadata]
@@ -33,7 +39,7 @@ PDF page numbers are one-based physical pages, which may differ from printed
 page labels in the book.
 
 You start and stop the AskTheBook server and LM Studio separately. AskTheBook
-starts a hidden, temporary `llama-server.exe` for each embedding operation, waits
+starts a temporary `llama-server.exe` (Windows, hidden) or `llama-server` (Linux) for each embedding operation, waits
 for it to become ready, and stops it when that operation finishes or raises an
 error. It releases its embedding process before requesting an answer from LM
 Studio. It does not start, stop, or unload LM Studio's models. The tester only
@@ -41,13 +47,14 @@ makes HTTP requests; exiting it does not stop the server.
 
 ## Setup and start
 
-The current runtime targets Windows (`llama-server.exe`) and has been tested with
-Python 3.13. Before running, provide:
+The runtime supports Windows (`llama-server.exe`) and Linux (`llama-server`).
+Local testing so far has used Windows and Python 3.13; Linux runtime validation
+is still pending. Before running, provide:
 
 - An unlocked PDF containing extractable text. Scanned image-only PDFs need OCR,
   which this project does not provide.
-- An external llama.cpp Windows binary distribution, extracted with its required
-  DLLs together. Point the configuration at its binary directory; no Python
+- An external llama.cpp binary distribution for your OS, extracted with its required
+  shared libraries together. Point the configuration at its binary directory; no Python
   llama-cpp package or source build is required.
 - A downloaded `Qwen3-Embedding-0.6B-f16.gguf` embedding model.
 - LM Studio with a downloaded answer model and its local API server enabled.
@@ -60,9 +67,8 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Copy `config.example.json` to `config.local.json` **only if it does not exist**, and
-set your external llama.cpp directory, Qwen GGUF, and LM Studio URL/model. Existing
-local configuration should be kept. JSON paths can use forward slashes, for
+Edit `config.json` to set your external llama.cpp directory, Qwen GGUF,
+and LM Studio URL/model. JSON paths can use forward slashes, for
 example `D:/tools/llama.cpp/bin`. `rag_index_dir` is optional for a fresh setup;
 omit it if you have no previously prepared index. Uploads use `documents_dir`.
 
@@ -73,7 +79,7 @@ Start LM Studio's local API before asking questions, then start AskTheBook:
 ```
 
 Use `--config path/to/config.json` to select another configuration. The default
-configuration is `config.local.json` at the repository root. Listing documents
+configuration is `config.json` at the repository root. Listing documents
 does not require either model to be running; upload preparation needs Qwen, and
 answering needs both the Qwen runtime and LM Studio.
 
@@ -81,6 +87,42 @@ The API defaults to http://127.0.0.1:8000. Leave it running and use the tester f
 another terminal. Stop with Ctrl+C after requests finish. This version supports
 loopback only, no authentication, and **one server process / one Uvicorn worker**.
 Model downloads and dependency installation need internet access; inference does not.
+
+## Run a downloaded executable
+
+Download the package for your platform from this repository's **Releases** page.
+Python is included; llama.cpp, the embedding model, and LM Studio must be installed
+separately as described above.
+
+### Windows
+
+1. Extract `AskTheBook-windows-x64.zip` into a writable folder.
+2. Edit the included `config.json` with your model and llama.cpp paths.
+3. Keep `config.json` beside `AskTheBook.exe` and double-click the executable.
+4. Leave the console open while using the API. Press Ctrl+C to stop the server.
+
+If the console closes on startup, run `AskTheBook.exe` from PowerShell to read the
+error. You can select another configuration with `--config C:/path/to/config.json`.
+
+### Ubuntu
+
+Extract `AskTheBook-ubuntu-22.04-x64.tar.gz` into a writable folder:
+
+```bash
+mkdir -p AskTheBook
+tar -xzf AskTheBook-ubuntu-22.04-x64.tar.gz -C AskTheBook
+cd AskTheBook
+# Edit config.json with Linux paths before starting.
+./AskTheBook
+```
+
+Use a Linux llama.cpp distribution containing an executable `llama-server`.
+The package targets Ubuntu 22.04 x64; other distributions have not been verified.
+Launch it from a terminal and press Ctrl+C to stop it.
+
+For either platform, start LM Studio's local server before asking questions.
+Relative data paths resolve from the folder containing `config.json`. Keep your
+existing data in those locations when moving an installation.
 
 ## Tester
 
@@ -117,9 +159,6 @@ Override the URL via `ASKTHEBOOK_URL` or place options before the subcommand:
 Uploads wait until preparation completes. The minimal tester buffers uploads in
 memory. Client timeout/disconnection does not cancel work already running on the
 server. No progress, streaming, background jobs, or cancellation API is included.
-
-The old `python -m src.rag`, `src.extractor`, and other processing CLI entry points
-have been removed. Their functions remain internal backend building blocks.
 
 ## API
 
@@ -199,30 +238,6 @@ them separately from LM Studio. Unknown request fields are rejected, including
 chat-history fields. A native desktop client can call the API directly; CORS is
 not configured for a browser frontend hosted on another origin.
 
-For example, a client using Python `requests` (not a backend dependency) can call:
-
-```python
-import requests
-
-base_url = "http://127.0.0.1:8000"
-with open("book.pdf", "rb") as pdf:
-    response = requests.post(
-        f"{base_url}/documents",
-        files={"file": ("book.pdf", pdf, "application/pdf")},
-        timeout=3600,
-    )
-response.raise_for_status()
-document_id = response.json()["document_id"]
-
-response = requests.post(
-    f"{base_url}/ask",
-    json={"document_id": document_id, "question": "What is the main topic?"},
-    timeout=3600,
-)
-response.raise_for_status()
-print(response.json()["answer"])
-```
-
 Avoid automatically retrying an upload after a timeout: the first request may
 still complete, and repeating it creates another document. Check the document
 list first. There is no upload idempotency key or request-status endpoint.
@@ -246,9 +261,9 @@ tests/          # Backend and API tests
 
 New books live in `data/documents/<id>/` with `raw/`, `pages.jsonl`, `chunks.jsonl`,
 `embeddings/`, `index/`, and `document.json`. Metadata is published only when ready.
-Existing phase outputs remain intact. Question artifacts stay under `data/qa/`:
+Question artifacts stay under `data/qa/`:
 `run.json`, retrieved pages, exact prompt/response, and combined `result.json`.
-Generated data and local configuration are ignored by Git.
+Generated data is ignored by Git.
 
 For developers, `src/api/app.py` validates HTTP requests and serializes processing
 with one lock. `DocumentStore.prepare()` orchestrates uploads; `rag.pipeline.ask()`
@@ -262,7 +277,7 @@ Paths resolve relative to the configuration file unless absolute.
 
 | Setting | Purpose |
 |---|---|
-| `llama_cpp_bin_dir` | External llama-server.exe and DLL directory |
+| `llama_cpp_bin_dir` | External llama-server binary and shared-library directory |
 | `embedding_model_path` | Qwen3-Embedding-0.6B GGUF |
 | `lm_studio_base_url` | Local generation API including /v1 |
 | `generation_model` | Default answer model |
@@ -284,7 +299,7 @@ and query formatting currently target Qwen3-Embedding-0.6B. Even changing the GG
 quantization changes its fingerprint and requires preparing a new index. The
 answer model is selectable independently and requires no reindexing.
 
-## Learning notes and current limits
+## Current limitations
 
 - Blank pages remain in extraction but produce no chunks. No OCR, overlap, chapter
   detection, or cleanup yet.
@@ -294,8 +309,7 @@ answer model is selectable independently and requires no reindexing.
 - FAISS stores float32 unit vectors: inner product equals cosine similarity. Source
   mappings, file checksums, and the GGUF fingerprint are verified during retrieval.
 - Qwen's temporary process stops before generation. LM Studio remains independently
-  managed and may already hold GPU memory during Qwen startup. The known 6 GB VRAM
-  contention is not changed by this API refactor.
+  managed and may already hold GPU memory during Qwen startup. Allow enough free VRAM for the embedding model to load.
 - Citation warnings validate labels, not factual support. Cosine similarity is not
   answer confidence. Generation relies on LM Studio for context-window enforcement;
   configure overflow to error rather than silently discard text.
@@ -312,7 +326,7 @@ answer model is selectable independently and requires no reindexing.
 | `llama-server exited` | Read the log path in the error. On a 6 GB GPU, LM Studio's loaded models can leave insufficient VRAM for Qwen; inspect memory use and unload unused models in LM Studio. |
 | Cannot reach LM Studio or model error | Enable its local server, check the `/v1` URL, exact model ID, and API key if enabled. |
 | Upload has no chunks | Confirm that the PDF contains selectable text and is unlocked. OCR is not implemented. |
-| Input exceeds 4096 tokens | Uploads currently use a 4096-token embedding context per page, including the end token. There is no API setting for this yet; chunking/runtime changes are needed. The old `--context-size` hint in the error is obsolete. |
+| Input exceeds 4096 tokens | Uploads currently use a 4096-token embedding context per page, including the end token. There is no API setting for this yet; chunking/runtime changes are needed. Reduce the amount of text per page for oversized inputs. |
 | Model fingerprint mismatch | Use the same GGUF that built the index, or upload the document again with the configured model. |
 | Answer incomplete or missing facts | Inspect returned warnings and retrieved sources; the answer model may lack evidence or run out of output/context space. |
 
@@ -333,16 +347,7 @@ not have a run directory. Upload diagnostics are under
 If relevant evidence is absent from `sources`, investigate retrieval first. If
 the evidence is present but the answer ignores or misstates it, investigate the
 generation prompt/model. Valid citation labels alone do not prove correctness.
-A dedicated evaluation set, hybrid retrieval, reranking, query rewriting, and
-chapter-aware retrieval remain future work.
 
-## Tests
+## Development
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
-
-Tests cover index/retrieval/generation logic, request validation, model overrides,
-busy responses, real PDF extraction/chunking with mocked expensive steps, and failed
-upload visibility. Actual model checks require llama.cpp and LM Studio.
+For local checks and packaging instructions, see [the maintainer guide](docs/maintaining.md).

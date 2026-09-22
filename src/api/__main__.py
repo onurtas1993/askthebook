@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import uvicorn
@@ -11,9 +12,13 @@ from .app import create_app
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[2] / "config.local.json")
+    base = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
+    parser.add_argument("--config", type=Path, default=base / "config.json")
     args = parser.parse_args()
-    settings = json.loads(args.config.read_text(encoding="utf-8"))
+    try:
+        settings = json.loads(args.config.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        parser.error(f"Configuration not found: {args.config}. Keep config.json beside the executable or use --config PATH.")
     host = settings.get("api_host", "127.0.0.1")
     port = settings.get("api_port", 8000)
     if host not in ("127.0.0.1", "localhost", "::1"):

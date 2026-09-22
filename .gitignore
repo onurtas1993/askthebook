@@ -1,7 +1,9 @@
 .venv/
+build/
+dist/
+*.spec
 __pycache__/
 *.py[cod]
-config.local.json
 data/raw/*
 !data/raw/.gitkeep
 data/extracted/*
